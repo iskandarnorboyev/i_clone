@@ -50,7 +50,7 @@ class User(AbstractUser, BaseModel):
         return f"{self.first_name} {self.last_name}"
 
     def create_verify_code(self, verify_type):
-        code = "", join([str(random.randint(0, 100) % 10) for _ in range(4)])
+        code = "".join([str(random.randint(0, 100) % 10) for _ in range(4)])
         UserConfirmation.objects.create(
             user_id=self.id,
             verify_type=verify_type,
@@ -63,7 +63,7 @@ class User(AbstractUser, BaseModel):
             temp_username = f"instagram-{uuid.uuid4().__str__().split("-")[-1]}"
             while User.objects.filter(username=temp_username):
                 temp_username = f"{temp_username}{random.randint(0,9)}"
-        self.username = temp_username
+            self.username = temp_username
 
     def check_email(self):
         if self.email:
@@ -93,8 +93,7 @@ class User(AbstractUser, BaseModel):
         self.hashing_password()
 
     def save(self, *args, **kwargs):
-        if not self.pk:
-            self.clean()
+        self.clean()
         super(User, self).save(*args, **kwargs)
 
 
@@ -123,4 +122,3 @@ class UserConfirmation(BaseModel):
         super(UserConfirmation, self).save(*args, **kwargs)
 
 
-        # 11 min
