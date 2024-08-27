@@ -1,4 +1,4 @@
-from .models import DONE, CODE_VERIFIED, NEW
+from .models import DONE, CODE_VERIFIED, NEW, VIA_PHONE, VIA_EMAIL
 from datetime import datetime
 from rest_framework import permissions
 from rest_framework.decorators import permission_classes
@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from .serializers import SignUpSerializer
 from .models import User
+from shared.utility import send_email
 
 
 class CreateUserView(CreateAPIView):
@@ -50,3 +51,38 @@ class VerifyAPIView(APIView):
             user.save()
         return True
 
+
+
+class GetNewVerification(APIView):
+
+    def get(self, request, *args, **kwargs):
+        user = self.request.user
+        self.check_verification(user)
+        if user.auth_type == VIA_EMAIL:
+            code = user.create_verify_code(VIA_EMAIL)
+            send_email(user.email, code)
+        elif user.auth_type == VIA_PHONE:
+            code = user.create_verify_code(VIA_PHONE)
+            send_email(user.phone_number, code)
+        else:
+            data = {
+                "message": "Email yoki telefon raqami noto'g'ri"
+            }
+            raise ValidationError(data)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Tasdiqlash kodingiz qaytadan jo'natildi"
+            }
+        )
+
+
+    @staticmethod
+    def check_verification(user):
+        verifies = user.verify_codes.filter(expiration_time__gte=datetime.now(), is_confirmed=False)
+        if verifies.exists():
+            data = {
+                "message": "Kodiingiz hali ishlatish uchun yaroqli. Biroz kutib turing"
+            }
+            raise ValidationError(data)
