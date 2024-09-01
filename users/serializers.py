@@ -1,12 +1,18 @@
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import update_last_login
 
 from shared.utility import check_email_or_phone, send_email, send_phone_code, check_user_type
 from .models import User, UserConfirmation, VIA_EMAIL, VIA_PHONE, NEW, CODE_VERIFIED, DONE, PHOTO_DONE
 from rest_framework import exceptions, serializers
 from django.db.models import Q
-from rest_framework.exceptions import ValidationError
+from rest_framework.generics import get_object_or_404
+from rest_framework.exceptions import ValidationError, NotFound
+from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+
+from rest_framework.exceptions import PermissionDenied
 
 from django.core.validators import FileExtensionValidator
 
@@ -183,7 +189,7 @@ class ChangeUserPhotoSerializer(serializers.Serializer):
 class LoginSerializer(TokenObtainPairSerializer):
 
     def __init__(self, *args, **kwargs):
-        super(LoginSerializer).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.fields['userinput'] = serializers.CharField(required=True)
         self.fields['username'] = serializers.CharField(required=False, read_only=True)
 
@@ -209,14 +215,33 @@ class LoginSerializer(TokenObtainPairSerializer):
             'password': data['password']
         }
         current_user = User.objects.filter(username__iexact=username).first()
-        if current_user.auth_status in [NEW, CODE_VERIFIED]:
+
+
+        if current_user is not None and current_user.auth_status in [NEW, CODE_VERIFIED]:
             raise ValidationError(
                 {
                     'success': False,
                     'message': "Siz ro'yxatdan to'liq o'tmagansiz"
                 }
             )
-        user = authenticate()
+        user = authenticate(**authentication_kwargs)
+        if user is not None:
+            self.user = user
+        else:
+            raise ValidationError(
+                {
+                    'success': False,
+                    'message': "Sorry, login or password you entered is incorrect. Please chack and try again"
+                }
+            )
+    def validate(self, data):
+        self.auth_validate(data)
+        if self.user.auth_status not in [DONE, PHOTO_DONE]:
+            raise PermissionDenied("Siz login qila olmaysiz. Ruxsatingiz yo'q")
+        data = self.user.token()
+        data['auth_status'] = self.user.auth_status
+        data['full_name'] = self.user.full_name
+        return data
 
 
     def get_user(self, **kwargs):
@@ -230,3 +255,35 @@ class LoginSerializer(TokenObtainPairSerializer):
         return users.first()
 
 
+class LoginRefreshSerializer(TokenRefreshSerializer):
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        access_token_instance = AccessToken(data['access'])
+        user_id = access_token_instance['user_id']
+        user = get_object_or_404(User, id=user_id)
+        update_last_login(None, user)
+        return data
+
+
+class LogOutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email_or_phone = serializers.CharField(write_only=True, required=True)
+
+    def validate(self, attrs):
+        email_or_phone = attrs.get('email_or_phone', None)
+        if email_or_phone is None:
+            raise ValidationError(
+                {
+                    "success": False,
+                    "message": "Email yoki telefon raqami kiritilishi shart"
+                }
+            )
+        user = User.objects.filter(Q(phone_number=email_or_phone) | Q(email=email_or_phone))
+        if not user.exists():
+            raise NotFound(detail="User not found")
+
+        return attrs

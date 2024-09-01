@@ -7,8 +7,11 @@ from rest_framework.generics import CreateAPIView, UpdateAPIView
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 
-from .serializers import SignUpSerializer, ChangeUserInformation, ChangeUserPhotoSerializer
+from .serializers import SignUpSerializer, ChangeUserInformation, ChangeUserPhotoSerializer, LoginSerializer, LoginRefreshSerializer,LogOutSerializer, ForgotPasswordSerializer
 from .models import User
 from shared.utility import send_email
 
@@ -128,3 +131,32 @@ class ChangeUserPhotoView(APIView):
         return Response(
             serializer.errors, status=400
         )
+
+class LoginView(TokenObtainPairView):
+    serializer_class = LoginSerializer
+
+class LoginRefreshView(TokenRefreshView):
+    serializer_class = LoginRefreshSerializer
+
+class LogOutView(APIView):
+    serializer_class = LogOutSerializer
+    permission_classes = [IsAuthenticated, ]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=self.request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            refresh_token = self.request.data['refresh']
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            data = {
+                'success': True,
+                'message': "You are loggout out"
+            }
+            return Response(data, status=205)
+        except TokenError:
+            return Response(status=400)
+
+
+
+
